@@ -22,7 +22,7 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Gerar arquivos (current.txt, txt, json)
+      - name: Gerar arquivos (current.txt, txt, data.json)
         run: |
           node - <<'NODE'
           const https = require('https');
@@ -96,9 +96,13 @@ jobs:
             const lines = flattenKV(adj);
             fs.writeFileSync(path.join(pub, 'txt'), lines.join('\n') + '\n', 'utf-8');
 
-            fs.writeFileSync(path.join(pub, 'json'), JSON.stringify(adj, null, 2) + '\n', 'utf-8');
+            // Salva JSON com extensão .json
+            fs.writeFileSync(path.join(pub, 'data.json'), JSON.stringify(adj, null, 2) + '\n', 'utf-8');
 
-            console.log("Arquivos atualizados");
+            console.log("Arquivos atualizados:");
+            console.log("- public/current.txt");
+            console.log("- public/txt");
+            console.log("- public/data.json");
           })().catch(err => {
             console.error(err);
             process.exit(1);
@@ -108,7 +112,7 @@ jobs:
       - name: Detectar alterações
         id: changes
         run: |
-          if git status --porcelain | grep -qE "public/(current\.txt|txt|json)"; then
+          if git status --porcelain | grep -qE "public/(current\.txt|txt|data\.json)"; then
             echo "changed=true" >> $GITHUB_OUTPUT
           else
             echo "changed=false" >> $GITHUB_OUTPUT
@@ -119,6 +123,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/current.txt public/txt public/json
+          git add public/current.txt public/txt public/data.json
           git commit -m "chore: atualizar dados (CI)" || echo "no changes to commit"
           git push
