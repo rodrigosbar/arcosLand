@@ -1,15 +1,14 @@
-// .github/scripts/generate.js
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
 
 const RTDB_URL = process.env.RTDB_URL;
 const OUT_DIR  = process.env.OUT_DIR || 'public';
-const BASE_URL = process.env.BASE_URL || 'https://arcosland.pages.dev';
+const BASE_URL = (process.env.BASE_URL || 'https://arcosland.pages.dev').replace(/\/$/,'');
 
 if (!RTDB_URL) {
   console.error('RTDB_URL não definido');
-  process.exit(1);
+  process.exit(2);
 }
 
 function fetchJSONWithRetry(url, retries = 3, baseDelay = 600, timeoutMs = 8000) {
@@ -25,10 +24,7 @@ function fetchJSONWithRetry(url, retries = 3, baseDelay = 600, timeoutMs = 8000)
       });
       req.setTimeout(timeoutMs, () => req.destroy(new Error('Timeout')));
       req.on('error', fail);
-      function fail(err){
-        if (attempt >= retries) return reject(err);
-        setTimeout(tryOnce, baseDelay * Math.pow(2, attempt - 1));
-      }
+      function fail(err){ if (attempt >= retries) return reject(err); setTimeout(tryOnce, baseDelay * Math.pow(2, attempt-1)); }
     };
     tryOnce();
   });
@@ -69,7 +65,6 @@ function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g
   }
 
   const adj = minusOneDeg(raw);
-
   if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
 
   const currentStr = Number.isFinite(adj.current.value) ? adj.current.value.toFixed(2) : 'N/A';
@@ -78,7 +73,6 @@ function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g
   fs.writeFileSync(path.join(OUT_DIR, 'data.json'), JSON.stringify(adj, null, 2) + '\n', 'utf-8');
 
   const tsBr = new Date(adj.current.ts).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
-
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "Dataset",
@@ -108,7 +102,7 @@ function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g
   <meta name="robots" content="index,follow">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ArcosLand — Temperatura Atual</title>
-  <link rel="canonical" href="${BASE_URL.replace(/\/$/,'')}/">
+  <link rel="canonical" href="${BASE_URL}/">
   <style>
     :root { color-scheme: light dark; }
     body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background:#f8f9fa; color:#222; margin:0; padding:24px; }
@@ -117,7 +111,6 @@ function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g
     .card { background:#fff; border:1px solid #ddd; border-radius:12px; padding:16px; box-shadow:0 2px 8px rgba(0,0,0,.06); max-width:980px; margin:0 auto 16px; }
     pre { margin:0; overflow:auto; }
     .muted { color:#666; font-size:.9em; text-align:center; margin-top:12px; }
-    a { color: inherit; }
   </style>
 </head>
 <body>
@@ -136,36 +129,30 @@ ${esc(JSON.stringify(jsonLd))}
   </script>
 </body>
 </html>`;
-
   fs.writeFileSync(path.join(OUT_DIR, 'index.html'), html, 'utf-8');
 
-  // headers p/ no-cache no Pages
-  const headers = `/*
+  fs.writeFileSync(path.join(OUT_DIR, '_headers'), `/*
 Cache-Control: no-store, no-cache, must-revalidate, max-age=0
 Pragma: no-cache
 Expires: 0
-`;
-  fs.writeFileSync(path.join(OUT_DIR, '_headers'), headers, 'utf-8');
+`, 'utf-8');
 
-  // robots.txt
   fs.writeFileSync(path.join(OUT_DIR, 'robots.txt'), `User-agent: *
 Allow: /
 `, 'utf-8');
 
-  // sitemap.xml
   const nowIso = new Date().toISOString();
-  const base = BASE_URL.replace(/\/$/,'');
   const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>${base}/</loc><lastmod>${nowIso}</lastmod><changefreq>always</changefreq><priority>1.0</priority></url>
-  <url><loc>${base}/data.json</loc><lastmod>${nowIso}</lastmod><changefreq>always</changefreq><priority>0.9</priority></url>
-  <url><loc>${base}/current.txt</loc><lastmod>${nowIso}</lastmod><changefreq>always</changefreq><priority>0.9</priority></url>
-  <url><loc>${base}/txt</loc><lastmod>${nowIso}</lastmod><changefreq>always</changefreq><priority>0.8</priority></url>
+  <url><loc>${BASE_URL}/</loc><lastmod>${nowIso}</lastmod><changefreq>always</changefreq><priority>1.0</priority></url>
+  <url><loc>${BASE_URL}/data.json</loc><lastmod>${nowIso}</lastmod><changefreq>always</changefreq><priority>0.9</priority></url>
+  <url><loc>${BASE_URL}/current.txt</loc><lastmod>${nowIso}</lastmod><changefreq>always</changefreq><priority>0.9</priority></url>
+  <url><loc>${BASE_URL}/txt</loc><lastmod>${nowIso}</lastmod><changefreq>always</changefreq><priority>0.8</priority></url>
 </urlset>`;
   fs.writeFileSync(path.join(OUT_DIR, 'sitemap.xml'), sitemap, 'utf-8');
 
-  console.log('OK: arquivos gerados em', OUT_DIR);
+  console.log('✅ OK: arquivos gerados em', OUT_DIR);
 })().catch((err) => {
-  console.error(err);
+  console.error('❌ ERRO:', err);
   process.exit(1);
 });
