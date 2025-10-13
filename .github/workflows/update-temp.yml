@@ -9,7 +9,6 @@ on:
       - main
       - master
 
-# Evita duas execuções concorrentes deste mesmo workflow
 concurrency:
   group: arcosland-pages
   cancel-in-progress: false
@@ -20,12 +19,6 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      RTDB_URL: "https://arcosland-90ad2-default-rtdb.firebaseio.com/aquario.json"
-      OUT_DIR: "public"
-      # Opcional: se quiser rodar de 1 em 1 min por N minutos, defina > 0 (ex.: 5).
-      LOOP_MINUTES: "0"   # "0" = desativado. Ex.: "5" => repete 5 vezes (a cada 60s).
-      LOOP_SLEEP_SEC: "60"
 
     steps:
       - name: Checkout
@@ -36,71 +29,68 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Preparar script de geração
+      - name: Gerar arquivos (current.txt, txt, data.json, index.html)
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$OUT_DIR"
-          cat > .github/arcosland-generate.mjs <<'NODE'
-          import fs from "fs";
-          import crypto from "crypto";
+          node <<'NODE'
+          const https = require('https');
+          const fs = require('fs');
+          const path = require('path');
 
-          const RTDB_URL = process.env.RTDB_URL ?? "";
-          const OUT_DIR  = process.env.OUT_DIR  ?? "public";
+          const RTDB_URL = 'https://arcosland-90ad2-default-rtdb.firebaseio.com/aquario.json';
 
-          const controller = new AbortController();
-          const timeoutMs = 8000; // 8s
-          const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+          function fetchJSONWithRetry(url, retries = 3, baseDelay = 500, timeoutMs = 8000) {
+            return new Promise((resolve, reject) => {
+              let attempt = 0;
 
-          function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
-
-          async function fetchJSONWithRetry(url, {retries=3, baseDelay=500} = {}) {
-            let attempt = 0;
-            while (true) {
-              try {
-                const res = await fetch(url, {
-                  method: "GET",
-                  headers: {
-                    "Accept": "application/json",
-                    "Cache-Control": "no-store"
-                  },
-                  signal: controller.signal
-                });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const text = await res.text();
-                try {
-                  return JSON.parse(text);
-                } catch (e) {
-                  throw new Error(`Falha ao parsear JSON: ${e.message} (payload len=${text.length})`);
-                }
-              } catch (err) {
+              const tryOnce = () => {
                 attempt++;
-                if (attempt > retries) throw err;
-                const delay = baseDelay * Math.pow(2, attempt - 1); // backoff
-                await sleep(delay);
-              }
-            }
-          }
+                const req = https.get(url, {
+                  headers: { Accept: 'application/json', 'Cache-Control': 'no-store' },
+                }, (res) => {
+                  if (res.statusCode && res.statusCode >= 400) {
+                    res.resume(); // descarta
+                    return fail(new Error(`HTTP ${res.statusCode}`));
+                  }
+                  let data = '';
+                  res.on('data', d => data += d);
+                  res.on('end', () => {
+                    try {
+                      const json = JSON.parse(data);
+                      resolve(json);
+                    } catch (e) {
+                      fail(new Error(`Falha ao parsear JSON: ${e.message}`));
+                    }
+                  });
+                });
 
-          function assertAquarioShape(data) {
-            if (!data || typeof data !== "object") throw new Error("JSON inválido: objeto raiz ausente");
-            if (!data.current || typeof data.current !== "object") throw new Error("JSON inválido: campo 'current' ausente");
-            if (typeof data.current.value !== "number" || !Number.isFinite(data.current.value)) {
-              throw new Error("JSON inválido: 'current.value' não numérico");
-            }
-            if (typeof data.current.ts !== "string" || !data.current.ts) {
-              throw new Error("JSON inválido: 'current.ts' ausente");
-            }
+                req.setTimeout(timeoutMs, () => {
+                  req.destroy(new Error('Timeout'));
+                });
+
+                req.on('error', fail);
+
+                function fail(err) {
+                  if (attempt >= retries) return reject(err);
+                  const wait = baseDelay * Math.pow(2, attempt - 1);
+                  setTimeout(tryOnce, wait);
+                }
+              };
+
+              tryOnce();
+            });
           }
 
           function minusOneDeg(obj) {
-            if (obj === null || typeof obj !== "object") return obj;
+            if (obj === null || typeof obj !== 'object') return obj;
             if (Array.isArray(obj)) return obj.map(minusOneDeg);
             const out = {};
-            for (const [k, v] of Object.entries(obj)) {
-              if (k === "value" && typeof v === "number" && Number.isFinite(v)) {
+            for (const k of Object.keys(obj)) {
+              const v = obj[k];
+              if (k === 'value' && typeof v === 'number' && Number.isFinite(v)) {
                 out[k] = Number((v - 1).toFixed(2));
-              } else if (v && typeof v === "object") {
+              } else if (v && typeof v === 'object') {
                 out[k] = minusOneDeg(v);
               } else {
                 out[k] = v;
@@ -109,9 +99,9 @@ jobs:
             return out;
           }
 
-          function flattenKV(obj, prefix = "", lines = []) {
-            if (obj === null || typeof obj !== "object") {
-              const key = prefix.replace(/\.$/, "");
+          function flattenKV(obj, prefix = '', lines = []) {
+            if (obj === null || typeof obj !== 'object') {
+              const key = prefix.replace(/\.$/, '');
               lines.push(`${key}=${String(obj)}`);
               return lines;
             }
@@ -119,7 +109,7 @@ jobs:
             for (const k of keys) {
               const v = obj[k];
               const p = prefix ? `${prefix}.${k}` : k;
-              if (v !== null && typeof v === "object") {
+              if (v !== null && typeof v === 'object') {
                 flattenKV(v, p, lines);
               } else {
                 lines.push(`${p}=${String(v)}`);
@@ -128,58 +118,29 @@ jobs:
             return lines;
           }
 
-          function sha256(buf) {
-            return crypto.createHash("sha256").update(buf).digest("hex");
-          }
-
-          function writeFileSyncSafe(filePath, content) {
-            fs.mkdirSync(OUT_DIR, { recursive: true });
-            fs.writeFileSync(filePath, content);
-          }
-
-          function toHuman(tsStr, value) {
-            // Gera string "Dia DD de mês de AAAA, dia-da-semana, HH:MM, a temperatura do aquário é XX,YY °C."
-            // Sem depender de Intl com locale PT-BR do host: fazemos manualmente.
-            const meses = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
-            const dias = ["domingo","segunda-feira","terça-feira","quarta-feira","quinta-feira","sexta-feira","sábado"];
-            const d = new Date(tsStr);
-            if (Number.isNaN(d.getTime())) return `Timestamp inválido (${tsStr}). Valor: ${value?.toFixed?.(2)} °C`;
-            const dd = String(d.getDate()).padStart(2,"0");
-            const mmNome = meses[d.getMonth()];
-            const yyyy = d.getFullYear();
-            const hh = String(d.getHours()).padStart(2,"0");
-            const mi = String(d.getMinutes()).padStart(2,"0");
-            const dow = dias[d.getDay()];
-            const vstr = typeof value === "number" ? value.toFixed(2).replace(".", ",") : String(value);
-            return `Dia ${dd} de ${mmNome} de ${yyyy}, ${dow}, ${hh}:${mi}, a temperatura do aquário é ${vstr} °C.`;
-          }
-
-          async function main(){
-            const raw = await fetchJSONWithRetry(RTDB_URL, {retries: 3, baseDelay: 700});
-            assertAquarioShape(raw);
-
-            // Ajuste (-1°C) conforme sua lógica atual
+          (async () => {
+            const raw = await fetchJSONWithRetry(RTDB_URL, 3, 700, 8000);
+            if (!raw || typeof raw !== 'object' || !raw.current || typeof raw.current.value !== 'number' || !raw.current.ts) {
+              throw new Error('JSON inesperado: faltando current.ts/value');
+            }
             const adj = minusOneDeg(raw);
 
-            // Saídas
-            const outDataPretty = JSON.stringify(adj, null, 2) + "\n";
-            const outDataMin    = JSON.stringify(adj) + "\n";
+            const pub = path.join(process.cwd(), 'public');
+            if (!fs.existsSync(pub)) fs.mkdirSync(pub, { recursive: true });
 
-            // current.*
-            const currVal = adj?.current?.value;
-            const currTs  = adj?.current?.ts;
-
-            const currentTxt = (typeof currVal === "number" && Number.isFinite(currVal))
-              ? currVal.toFixed(2) + "\n" : "N/A\n";
-
-            const currentIsoTxt = (typeof currTs === "string" ? currTs : "N/A") + "\n";
-            const currentHuman = toHuman(currTs, currVal) + "\n";
+            // current.txt
+            const current = adj.current.value;
+            const currentStr = Number.isFinite(current) ? current.toFixed(2) : 'N/A';
+            fs.writeFileSync(path.join(pub, 'current.txt'), currentStr, 'utf-8');
 
             // txt (chave=valor)
             const lines = flattenKV(adj);
-            const kvTxt = lines.join("\n") + "\n";
+            fs.writeFileSync(path.join(pub, 'txt'), lines.join('\n') + '\n', 'utf-8');
 
-            // index.html simples
+            // data.json (JSON completo)
+            fs.writeFileSync(path.join(pub, 'data.json'), JSON.stringify(adj, null, 2) + '\n', 'utf-8');
+
+            // index.html (HTML simples com JSON)
             const html = `<!DOCTYPE html>
           <html lang="pt-BR">
           <head>
@@ -187,109 +148,46 @@ jobs:
             <title>ArcosLand – Dados do Aquário</title>
             <meta name="viewport" content="width=device-width, initial-scale=1" />
             <style>
-              :root { color-scheme: light dark; }
-              body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: 0; padding: 24px; background: #f6f6f7; }
-              h1 { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"; text-align:center; margin:0 0 12px; }
-              .wrap { max-width: 980px; margin: 0 auto; }
-              .card { background: #fff; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.06); padding:16px; margin-bottom:16px; overflow:auto; }
-              .muted { color: #666; font-size: 0.9rem; }
-              pre { margin: 0; }
-              a { color: #0b5; text-decoration: none; }
-              a:hover { text-decoration: underline; }
+              body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background:#f8f9fa; margin:0; padding:20px; }
+              h1 { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans; text-align:center; }
+              pre { background:#fff; padding:16px; border-radius:8px; overflow:auto; box-shadow:0 0 6px #ccc; }
+              small { display:block; text-align:center; color:#555; margin-top:1em; }
             </style>
           </head>
           <body>
-            <div class="wrap">
-              <h1>🌿 ArcosLand – Dados do Aquário</h1>
-
-              <div class="card">
-                <strong>Atual:</strong>
-                <div class="muted">${currentHuman.trim()}</div>
-              </div>
-
-              <div class="card"><strong>JSON (completo):</strong><pre>${outDataPretty}</pre></div>
-              <div class="card"><strong>KV (txt):</strong><pre>${kvTxt}</pre></div>
-              <div class="card muted">Atualizado automaticamente via GitHub Actions</div>
-            </div>
+            <h1>🌿 ArcosLand – Dados Atuais do Aquário</h1>
+            <pre>${JSON.stringify(adj, null, 2)}</pre>
+            <small>Atualizado automaticamente via GitHub Actions</small>
           </body>
-          </html>\n`;
+          </html>`;
+            fs.writeFileSync(path.join(pub, 'index.html'), html, 'utf-8');
 
-            // Escrever arquivos
-            fs.writeFileSync(`${OUT_DIR}/data.json`, outDataPretty, "utf-8");
-            fs.writeFileSync(`${OUT_DIR}/data.min.json`, outDataMin, "utf-8");
-            fs.writeFileSync(`${OUT_DIR}/current.txt`, currentTxt, "utf-8");
-            fs.writeFileSync(`${OUT_DIR}/current.json`, JSON.stringify(adj?.current ?? {}, null, 2) + "\n", "utf-8");
-            fs.writeFileSync(`${OUT_DIR}/current_iso.txt`, currentIsoTxt, "utf-8");
-            fs.writeFileSync(`${OUT_DIR}/current_human.txt`, currentHuman, "utf-8");
-            fs.writeFileSync(`${OUT_DIR}/txt`, kvTxt, "utf-8");
-            fs.writeFileSync(`${OUT_DIR}/index.html`, html, "utf-8");
-
-            // Hash do data.json para evitar commits redundantes
-            const hash = sha256(Buffer.from(outDataPretty, "utf-8"));
-            fs.writeFileSync(`${OUT_DIR}/data.sha256`, hash + "\n", "utf-8");
-
-            console.log("OK: arquivos gerados em", OUT_DIR);
-          }
-
-          try {
-            await main();
-          } catch (e) {
-            console.error("ERRO:", e?.message ?? e);
+            console.log('Arquivos atualizados:');
+            console.log('- public/current.txt');
+            console.log('- public/txt');
+            console.log('- public/data.json');
+            console.log('- public/index.html');
+          })().catch((err) => {
+            console.error(err);
             process.exit(1);
-          } finally {
-            clearTimeout(timeoutId);
-          }
+          });
           NODE
 
-      - name: Executar geração (primeira vez)
-        shell: bash
-        run: |
-          set -euo pipefail
-          node .github/arcosland-generate.mjs
-
-      - name: (Opcional) Loop interno em 1 min
-        if: ${{ env.LOOP_MINUTES != '0' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          for i in $(seq 1 "${LOOP_MINUTES}"); do
-            echo "Loop $i/${LOOP_MINUTES}..."
-            # Regera arquivos
-            if node .github/arcosland-generate.mjs; then
-              echo "Geração OK (loop $i)."
-            else
-              echo "Falha no loop $i — seguindo para próxima iteração." >&2
-            fi
-            # Commit/push se houver mudanças
-            if git status --porcelain | grep -qE "public/(current\.txt|current\.json|current_iso\.txt|current_human\.txt|txt|data\.json|data\.min\.json|data\.sha256|index\.html)"; then
-              git config user.name  "github-actions[bot]"
-              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-              git add public/current.txt public/current.json public/current_iso.txt public/current_human.txt public/txt public/data.json public/data.min.json public/data.sha256 public/index.html
-              git commit -m "chore: atualizar dados (loop ${i}/${LOOP_MINUTES})" || true
-              git push || true
-            fi
-            # Dorme até a próxima iteração
-            sleep "${LOOP_SLEEP_SEC}"
-          done
-
-      - name: Detectar alterações (execução principal)
-        if: ${{ env.LOOP_MINUTES == '0' }}
+      - name: Detectar alterações
         id: changes
         shell: bash
         run: |
-          set -euo pipefail
-          if git status --porcelain | grep -qE "public/(current\.txt|current\.json|current_iso\.txt|current_human\.txt|txt|data\.json|data\.min\.json|data\.sha256|index\.html)"; then
+          if git status --porcelain | grep -qE "public/(current\.txt|txt|data\.json|index\.html)"; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Commit & Push (se mudou)
-        if: ${{ env.LOOP_MINUTES == '0' && steps.changes.outputs.changed == 'true' }}
+        if: steps.changes.outputs.changed == 'true'
         run: |
-          set -euo pipefail
-          git config user.name  "github-actions[bot]"
+          git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/current.txt public/current.json public/current_iso.txt public/current_human.txt public/txt public/data.json public/data.min.json public/data.sha256 public/index.html
+          git add public/current.txt public/txt public/data.json public/index.html
           git commit -m "chore: atualizar dados (CI)" || echo "no changes to commit"
-          git push || true
+          git push
