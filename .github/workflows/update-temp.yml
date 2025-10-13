@@ -30,7 +30,7 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Gerar arquivos (current.txt, txt, data.json, index.html)
+      - name: Gerar arquivos (current.txt, txt, data.json, index.html, _headers)
         shell: bash
         run: |
           set -euo pipefail
@@ -110,29 +110,8 @@ jobs:
             // 6) data.json (completo)
             fs.writeFileSync(path.join(OUT_DIR, 'data.json'), JSON.stringify(adj, null, 2) + '\n', 'utf-8');
 
-            // 7) index.html (estático, sem fetch, com JSON-LD)
+            // 7) index.html (estático, sem fetch)
             const tsBr = new Date(adj.current.ts).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
-            const jsonLd = {
-              "@context": "https://schema.org",
-              "@type": "Dataset",
-              "name": "ArcosLand Temperatura",
-              "description": "Dados públicos de temperatura do aquário ArcosLand (NodeMCU + Firebase).",
-              "creator": { "@type": "Person", "name": "Rodrigo Soares" },
-              "variableMeasured": {
-                "@type": "PropertyValue",
-                "name": "Temperatura da água",
-                "value": Number(currentStr),
-                "unitCode": "CEL",
-                "dateObserved": adj.current.ts,
-                "measurementTechnique": "DS18B20 via NodeMCU ESP8266"
-              },
-              "distribution": [
-                { "@type": "DataDownload", "encodingFormat": "application/json", "contentUrl": "./data.json" },
-                { "@type": "DataDownload", "encodingFormat": "text/plain",  "contentUrl": "./current.txt" },
-                { "@type": "DataDownload", "encodingFormat": "text/plain",  "contentUrl": "./txt" }
-              ]
-            };
-
             const html = `<!DOCTYPE html>
           <html lang="pt-BR">
           <head>
@@ -146,47 +125,33 @@ jobs:
               body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background:#f8f9fa; color:#222; margin:0; padding:24px; }
               h1 { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans; font-weight:600; text-align:center; margin: 0 0 12px; }
               p.lead { text-align:center; margin: 0 0 24px; }
-              .grid { display:grid; gap:16px; max-width: 980px; margin: 0 auto; }
-              .card { background:#fff; border:1px solid #ddd; border-radius:12px; padding:16px; box-shadow: 0 2px 8px rgba(0,0,0,.05); }
-              pre { margin:0; overflow:auto; }
+              pre { background:#fff; padding:16px; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,.05); overflow:auto; }
               .muted { color:#666; font-size:.9em; text-align:center; margin-top:12px; }
-              a { color: inherit; }
             </style>
           </head>
           <body>
             <h1>🌡️ Temperatura do aquário ArcosLand</h1>
             <p class="lead">No dia <strong>${tsBr}</strong>, a temperatura do aquário é <strong>${currentStr} °C</strong>.</p>
-
-            <div class="grid">
-              <div class="card">
-                <h2 style="margin-top:0">JSON completo (ajustado −1&nbsp;°C)</h2>
-                <pre>${JSON.stringify(adj, null, 2)}</pre>
-              </div>
-              <div class="card">
-                <h2 style="margin-top:0">Downloads</h2>
-                <ul>
-                  <li><a href="./current.txt">current.txt</a> — valor atual (${currentStr} °C)</li>
-                  <li><a href="./data.json">data.json</a> — JSON completo</li>
-                  <li><a href="./txt">txt</a> — chave=valor</li>
-                </ul>
-              </div>
-            </div>
-
+            <pre>${JSON.stringify(adj, null, 2)}</pre>
             <p class="muted">Atualizado automaticamente via GitHub Actions (a cada 5 minutos).</p>
-
-            <script type="application/ld+json">
-          ${JSON.stringify(jsonLd)}
-            </script>
           </body>
           </html>`;
-
             fs.writeFileSync(path.join(OUT_DIR, 'index.html'), html, 'utf-8');
+
+            // 8) Cria _headers para forçar atualização sem cache
+            const headers = `/*
+  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
+  Pragma: no-cache
+  Expires: 0
+`;
+            fs.writeFileSync(path.join(OUT_DIR, '_headers'), headers, 'utf-8');
 
             console.log('Arquivos atualizados:');
             console.log(`- ${OUT_DIR}/current.txt`);
             console.log(`- ${OUT_DIR}/txt`);
             console.log(`- ${OUT_DIR}/data.json`);
             console.log(`- ${OUT_DIR}/index.html`);
+            console.log(`- ${OUT_DIR}/_headers`);
           })().catch((err) => {
             console.error(err);
             process.exit(1);
@@ -197,10 +162,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git status --porcelain | grep -qE "${OUT_DIR}/(current\.txt|txt|data\.json|index\.html)"; then
+          if git status --porcelain | grep -qE "${OUT_DIR}/(current\.txt|txt|data\.json|index\.html|_headers)"; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add ${OUT_DIR}/current.txt ${OUT_DIR}/txt ${OUT_DIR}/data.json ${OUT_DIR}/index.html
+            git add ${OUT_DIR}/current.txt ${OUT_DIR}/txt ${OUT_DIR}/data.json ${OUT_DIR}/index.html ${OUT_DIR}/_headers
             git commit -m "chore: atualizar dados (CI)"
             git push
           else
