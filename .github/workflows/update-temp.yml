@@ -1,87 +1,105 @@
-- name: Gerar arquivos (current.txt, txt, data.json, index.html)
-  run: |
-    node - <<'NODE'
-    const https = require('https');
-    const fs = require('fs');
-    const path = require('path');
+name: Atualizar dados ArcosLand (Pages)
 
-    const RTDB_URL = "https://arcosland-90ad2-default-rtdb.firebaseio.com/aquario.json";
+on:
+  schedule:
+    - cron: "*/5 * * * *"   # a cada 5 minutos
+  workflow_dispatch:
+  push:
+    branches: [ "main", "master" ]
 
-    // Função para buscar JSON do Firebase
-    function fetchJSON(url) {
-      return new Promise((resolve, reject) => {
-        https.get(url, { headers: { 'Accept': 'application/json' } }, (res) => {
-          let data = '';
-          res.on('data', d => data += d);
-          res.on('end', () => {
-            try { resolve(JSON.parse(data)); }
-            catch (e) { reject(e); }
-          });
-        }).on('error', reject);
-      });
-    }
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
-    // Subtrai 1°C em todos os campos .value numéricos
-    function minusOneDeg(obj) {
-      if (obj === null || typeof obj !== 'object') return obj;
-      if (Array.isArray(obj)) return obj.map(minusOneDeg);
-      const out = {};
-      for (const k of Object.keys(obj)) {
-        const v = obj[k];
-        if (k === 'value' && typeof v === 'number' && Number.isFinite(v)) {
-          out[k] = Number((v - 1).toFixed(2));
-        } else if (v && typeof v === 'object') {
-          out[k] = minusOneDeg(v);
-        } else {
-          out[k] = v;
-        }
-      }
-      return out;
-    }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    // Converte objeto em lista key=value
-    function flattenKV(obj, prefix = "", lines = []) {
-      if (obj === null || typeof obj !== "object") {
-        const key = prefix.replace(/\.$/, "");
-        lines.push(`${key}=${String(obj)}`);
-        return lines;
-      }
-      const keys = Object.keys(obj).sort();
-      for (const k of keys) {
-        const v = obj[k];
-        const p = prefix ? `${prefix}.${k}` : k;
-        if (v !== null && typeof v === "object") {
-          flattenKV(v, p, lines);
-        } else {
-          lines.push(`${p}=${String(v)}`);
-        }
-      }
-      return lines;
-    }
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
 
-    (async () => {
-      const raw = await fetchJSON(RTDB_URL);
-      const adj = minusOneDeg(raw);
+      - name: Gerar arquivos (current.txt, txt, data.json, index.html)
+        run: |
+          node - <<'NODE'
+          const https = require('https');
+          const fs = require('fs');
+          const path = require('path');
 
-      const pub = path.join(process.cwd(), 'public');
-      if (!fs.existsSync(pub)) fs.mkdirSync(pub, { recursive: true });
+          const RTDB_URL = "https://arcosland-90ad2-default-rtdb.firebaseio.com/aquario.json";
 
-      // current.txt
-      const current = adj?.current?.value;
-      const currentStr = (typeof current === 'number' && Number.isFinite(current))
-        ? current.toFixed(2)
-        : 'N/A';
-      fs.writeFileSync(path.join(pub, 'current.txt'), currentStr, 'utf-8');
+          function fetchJSON(url) {
+            return new Promise((resolve, reject) => {
+              https.get(url, { headers: { 'Accept': 'application/json' } }, (res) => {
+                let data = '';
+                res.on('data', d => data += d);
+                res.on('end', () => {
+                  try { resolve(JSON.parse(data)); }
+                  catch (e) { reject(e); }
+                });
+              }).on('error', reject);
+            });
+          }
 
-      // txt (chave=valor)
-      const lines = flattenKV(adj);
-      fs.writeFileSync(path.join(pub, 'txt'), lines.join('\n') + '\n', 'utf-8');
+          function minusOneDeg(obj) {
+            if (obj === null || typeof obj !== 'object') return obj;
+            if (Array.isArray(obj)) return obj.map(minusOneDeg);
+            const out = {};
+            for (const k of Object.keys(obj)) {
+              const v = obj[k];
+              if (k === 'value' && typeof v === 'number' && Number.isFinite(v)) {
+                out[k] = Number((v - 1).toFixed(2));
+              } else if (v && typeof v === 'object') {
+                out[k] = minusOneDeg(v);
+              } else {
+                out[k] = v;
+              }
+            }
+            return out;
+          }
 
-      // data.json (json completo)
-      fs.writeFileSync(path.join(pub, 'data.json'), JSON.stringify(adj, null, 2) + '\n', 'utf-8');
+          function flattenKV(obj, prefix = "", lines = []) {
+            if (obj === null || typeof obj !== "object") {
+              const key = prefix.replace(/\.$/, "");
+              lines.push(`${key}=${String(obj)}`);
+              return lines;
+            }
+            const keys = Object.keys(obj).sort();
+            for (const k of keys) {
+              const v = obj[k];
+              const p = prefix ? `${prefix}.${k}` : k;
+              if (v !== null && typeof v === "object") {
+                flattenKV(v, p, lines);
+              } else {
+                lines.push(`${p}=${String(v)}`);
+              }
+            }
+            return lines;
+          }
 
-      // index.html (HTML simples exibindo JSON inteiro)
-      const html = `<!DOCTYPE html>
+          (async () => {
+            const raw = await fetchJSON(RTDB_URL);
+            const adj = minusOneDeg(raw);
+
+            const pub = path.join(process.cwd(), 'public');
+            if (!fs.existsSync(pub)) fs.mkdirSync(pub, { recursive: true });
+
+            const current = adj?.current?.value;
+            const currentStr = (typeof current === 'number' && Number.isFinite(current))
+              ? current.toFixed(2)
+              : 'N/A';
+            fs.writeFileSync(path.join(pub, 'current.txt'), currentStr, 'utf-8');
+
+            const lines = flattenKV(adj);
+            fs.writeFileSync(path.join(pub, 'txt'), lines.join('\n') + '\n', 'utf-8');
+
+            fs.writeFileSync(path.join(pub, 'data.json'), JSON.stringify(adj, null, 2) + '\n', 'utf-8');
+
+            // ======== NOVO: gerar index.html legível =========
+            const html = `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
@@ -99,15 +117,34 @@
   <small>Atualizado automaticamente via GitHub Actions</small>
 </body>
 </html>`;
-      fs.writeFileSync(path.join(pub, 'index.html'), html, 'utf-8');
+            fs.writeFileSync(path.join(pub, 'index.html'), html, 'utf-8');
+            // =================================================
 
-      console.log("Arquivos gerados com sucesso:");
-      console.log("- public/current.txt");
-      console.log("- public/txt");
-      console.log("- public/data.json");
-      console.log("- public/index.html");
-    })().catch(err => {
-      console.error(err);
-      process.exit(1);
-    });
-    NODE
+            console.log("Arquivos atualizados:");
+            console.log("- public/current.txt");
+            console.log("- public/txt");
+            console.log("- public/data.json");
+            console.log("- public/index.html");
+          })().catch(err => {
+            console.error(err);
+            process.exit(1);
+          });
+          NODE
+
+      - name: Detectar alterações
+        id: changes
+        run: |
+          if git status --porcelain | grep -qE "public/(current\.txt|txt|data\.json|index\.html)"; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit & Push (se mudou)
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/current.txt public/txt public/data.json public/index.html
+          git commit -m "chore: atualizar dados (CI)" || echo "no changes to commit"
+          git push
