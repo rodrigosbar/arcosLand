@@ -7,7 +7,7 @@ on:
   push:
     branches: [ main, master ]
     paths-ignore:
-      - 'public/**'         # não re-dispara quando só muda a pasta gerada
+      - 'public/**'         # não re-dispara quando só a pasta gerada muda
 
 concurrency:
   group: arcosland-pages
@@ -47,7 +47,7 @@ jobs:
           const RTDB_URL = process.env.RTDB_URL;
           const OUT_DIR = process.env.OUT_DIR || 'public';
 
-          // ==== fetch com retry e backoff exponencial ====
+          // fetch com retry e backoff
           function fetchJSONWithRetry(url, retries = 3, baseDelay = 600, timeoutMs = 8000) {
             return new Promise((resolve, reject) => {
               let attempt = 0;
@@ -61,9 +61,9 @@ jobs:
                 });
                 req.setTimeout(timeoutMs, () => req.destroy(new Error('Timeout')));
                 req.on('error', fail);
-                function fail(err){ 
-                  if (attempt >= retries) return reject(err); 
-                  setTimeout(tryOnce, baseDelay * Math.pow(2, attempt-1)); 
+                function fail(err){
+                  if (attempt >= retries) return reject(err);
+                  setTimeout(tryOnce, baseDelay * Math.pow(2, attempt-1));
                 }
               };
               tryOnce();
@@ -157,4 +157,16 @@ jobs:
           if git status --porcelain | grep -qE "${OUT_DIR}/(current\.txt|txt|data\.json|index\.html|_headers)"; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
-            echo "changed=false" >> "$GITHUB_OUTPUT"_
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit & Push (se mudou)
+        if: steps.changes.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ${OUT_DIR}/current.txt ${OUT_DIR}/txt ${OUT_DIR}/data.json ${OUT_DIR}/index.html ${OUT_DIR}/_headers
+          git commit -m "chore: atualizar dados (CI)"
+          git push
