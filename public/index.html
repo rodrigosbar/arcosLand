@@ -5,30 +5,18 @@
   <title>ArcosLand – Dados do Aquário</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    :root { color-scheme: light dark; }
-    body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: 0; padding: 24px; background: #f6f6f7; }
-    h1 { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"; text-align:center; margin:0 0 12px; }
-    .wrap { max-width: 980px; margin: 0 auto; }
-    .card { background: #fff; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.06); padding:16px; margin-bottom:16px; overflow:auto; }
-    .muted { color: #666; font-size: 0.9rem; }
-    pre { margin: 0; }
-    a { color: #0b5; text-decoration: none; }
-    a:hover { text-decoration: underline; }
+    body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background:#f8f9fa; margin:0; padding:20px; }
+    h1 { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans; text-align:center; }
+    pre { background:#fff; padding:16px; border-radius:8px; overflow:auto; box-shadow:0 0 6px #ccc; }
+    small { display:block; text-align:center; color:#555; margin-top:1em; }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>🌿 ArcosLand – Dados do Aquário</h1>
-
-    <div class="card">
-      <strong>Atual:</strong>
-      <div class="muted">Dia 13 de outubro de 2025, segunda-feira, 21:35, a temperatura do aquário é 26,50 °C.</div>
-    </div>
-
-    <div class="card"><strong>JSON (completo):</strong><pre>{
+  <h1>🌿 ArcosLand – Dados Atuais do Aquário</h1>
+  <pre>{
   "current": {
-    "ts": "2025-10-13T18:35:18-03:00",
-    "value": 26.5
+    "ts": "2025-10-13T18:37:18-03:00",
+    "value": 26.56
   },
   "daily": {
     "2025-10-10": {
@@ -72,28 +60,7 @@
       }
     }
   }
-}
-</pre></div>
-    <div class="card"><strong>KV (txt):</strong><pre>current.ts=2025-10-13T18:35:18-03:00
-current.value=26.5
-daily.2025-10-10.max.time=20:13
-daily.2025-10-10.max.value=24.94
-daily.2025-10-10.min.time=18:50
-daily.2025-10-10.min.value=20.06
-daily.2025-10-11.max.time=20:32
-daily.2025-10-11.max.value=25.38
-daily.2025-10-11.min.time=05:39
-daily.2025-10-11.min.value=24.19
-daily.2025-10-12.max.time=21:44
-daily.2025-10-12.max.value=26.88
-daily.2025-10-12.min.time=08:16
-daily.2025-10-12.min.value=24.5
-daily.2025-10-13.max.time=18:15
-daily.2025-10-13.max.value=26.63
-daily.2025-10-13.min.time=14:49
-daily.2025-10-13.min.value=25.81
-</pre></div>
-    <div class="card muted">Atualizado automaticamente via GitHub Actions</div>
-  </div>
+}</pre>
+  <small>Atualizado automaticamente via GitHub Actions</small>
 </body>
 </html>
