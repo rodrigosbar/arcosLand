@@ -1,10 +1,65 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="pt-BR">
-<meta charset="utf-8" />
-<title>ArcosLand · Dados</title>
-<h1>ArcosLand · Dados</h1>
-<ul>
-  <li><a href="/current.txt">/current.txt</a></li>
-  <li><a href="/txt">/txt</a></li>
-  <li><a href="/data.json">/json</a></li>
-</ul>
+<head>
+  <meta charset="utf-8">
+  <title>ArcosLand – Dados do Aquário</title>
+  <style>
+    body { font-family: monospace; background:#f8f9fa; padding:20px; }
+    h1 { font-family: sans-serif; text-align:center; }
+    pre { background:#fff; padding:16px; border-radius:8px; overflow-x:auto; box-shadow:0 0 6px #ccc; }
+    small { display:block; text-align:center; color:#555; margin-top:1em; }
+  </style>
+</head>
+<body>
+  <h1>🌿 ArcosLand – Dados Atuais do Aquário</h1>
+  <pre>{
+  "current": {
+    "ts": "2025-10-13T18:07:17-03:00",
+    "value": 26.56
+  },
+  "daily": {
+    "2025-10-10": {
+      "max": {
+        "time": "20:13",
+        "value": 24.94
+      },
+      "min": {
+        "time": "18:50",
+        "value": 20.06
+      }
+    },
+    "2025-10-11": {
+      "max": {
+        "time": "20:32",
+        "value": 25.38
+      },
+      "min": {
+        "time": "05:39",
+        "value": 24.19
+      }
+    },
+    "2025-10-12": {
+      "max": {
+        "time": "21:44",
+        "value": 26.88
+      },
+      "min": {
+        "time": "08:16",
+        "value": 24.5
+      }
+    },
+    "2025-10-13": {
+      "max": {
+        "time": "17:23",
+        "value": 26.56
+      },
+      "min": {
+        "time": "14:49",
+        "value": 25.81
+      }
+    }
+  }
+}</pre>
+  <small>Atualizado automaticamente via GitHub Actions</small>
+</body>
+</html>
