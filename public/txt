@@ -1,4 +1,4 @@
-current.ts=2025-10-26T06:48:59-03:00
+current.ts=2025-10-26T06:57:59-03:00
 current.value=24.81
 daily.2025-10-10.max.time=20:13
 daily.2025-10-10.max.value=24.94
@@ -66,5 +66,5 @@ daily.2025-10-25.min.time=04:48
 daily.2025-10-25.min.value=23
 daily.2025-10-26.max.time=00:00
 daily.2025-10-26.max.value=25.44
-daily.2025-10-26.min.time=03:38
-daily.2025-10-26.min.value=24.81
+daily.2025-10-26.min.time=06:50
+daily.2025-10-26.min.value=24.75
