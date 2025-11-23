@@ -17,7 +17,10 @@ function fetchJSONWithRetry(url, retries = 3, baseDelay = 600, timeoutMs = 8000)
     const tryOnce = () => {
       attempt++;
       const req = https.get(url, { headers: { Accept: 'application/json', 'Cache-Control': 'no-store' } }, (res) => {
-        if (res.statusCode && res.statusCode >= 400) { res.resume(); return fail(new Error(`HTTP ${res.statusCode}`)); }
+        if (res.statusCode && res.statusCode >= 400) {
+          res.resume();
+          return fail(new Error(`HTTP ${res.statusCode}`));
+        }
         let data = '';
         res.on('data', d => data += d);
         res.on('end', () => {
@@ -63,8 +66,7 @@ function esc(s) {
     .replace(/>/g,'&gt;');
 }
 
-// --------- ENVIO DE E-MAIL VIA MAILCHANNELS (SEM CLOUDFLARE, SEM -1) ---------
-
+// --- Envio de e-mail via MailChannels (SEM -1, SEM CLOUDFLARE) ---
 function sendAlertEmail(tempRaw, tsBr) {
   return new Promise((resolve, reject) => {
     const payload = {
@@ -85,7 +87,7 @@ function sendAlertEmail(tempRaw, tsBr) {
             `Alerta de temperatura em ArcosLand.\n\n` +
             `Data/hora: ${tsBr}\n` +
             `Temperatura (sem ajuste): ${tempRaw.toFixed(2)} °C\n` +
-            `Limites configurados: mínimo 24 °C, máximo 26 °C.\n\n` +
+            `Limites: mínimo 24 °C, máximo 26 °C.\n\n` +
             `Origem: GitHub Actions (.github/scripts/generate.js).`
         }
       ]
@@ -123,16 +125,24 @@ function sendAlertEmail(tempRaw, tsBr) {
 }
 
 // ------------------- MAIN -------------------
-
 (async () => {
   const raw = await fetchJSONWithRetry(RTDB_URL);
-  if (!raw || !raw.current || typeof raw.current.value !== 'number' || !raw.current.ts) {
-    throw new Error('JSON inesperado: faltando current.ts/value');
+
+  // JSON: { Luminaria: {...}, Temperatura: { current: { ts, value }, daily: {...} } }
+  if (
+    !raw ||
+    !raw.Temperatura ||
+    !raw.Temperatura.current ||
+    typeof raw.Temperatura.current.value !== 'number' ||
+    !raw.Temperatura.current.ts
+  ) {
+    throw new Error('JSON inesperado: faltando Temperatura.current.ts/value');
   }
 
-  // 🔥 Temperatura BRUTA do Firebase, SEM -1, usada para alerta e para a página
-  const tempRaw = raw.current.value;
-  const tsBr = new Date(raw.current.ts).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  const tempRaw = raw.Temperatura.current.value; // SEM -1
+  const tsBr = new Date(raw.Temperatura.current.ts).toLocaleString('pt-BR', {
+    timeZone: 'America/Sao_Paulo'
+  });
 
   if (Number.isFinite(tempRaw)) {
     if (tempRaw < 24 || tempRaw > 26) {
@@ -142,7 +152,7 @@ function sendAlertEmail(tempRaw, tsBr) {
         console.log('📧 Alerta de temperatura enviado para rodrigosbar@gmail.com');
       } catch (e) {
         console.error('❌ Erro ao enviar e-mail de alerta:', e.message);
-        // não derruba o job por causa do e-mail
+        // não derruba o job só por causa do e-mail
       }
     } else {
       console.log(`Temperatura dentro do intervalo: ${tempRaw.toFixed(2)} °C`);
@@ -151,12 +161,11 @@ function sendAlertEmail(tempRaw, tsBr) {
     console.warn('Temperatura bruta não é número finito, ignorando alerta.');
   }
 
-  // 🔹 A PARTIR DAQUI: uso SEM -1 também para os arquivos/página
+  // Arquivos da página – também SEM -1
   if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
 
   const currentStr = Number.isFinite(tempRaw) ? tempRaw.toFixed(2) : 'N/A';
 
-  // arquivos de saída
   fs.writeFileSync(path.join(OUT_DIR, 'current.txt'), currentStr, 'utf-8');
   fs.writeFileSync(path.join(OUT_DIR, 'txt'), flattenKV(raw).join('\n') + '\n', 'utf-8');
   fs.writeFileSync(path.join(OUT_DIR, 'data.json'), JSON.stringify(raw, null, 2) + '\n', 'utf-8');
@@ -172,7 +181,7 @@ function sendAlertEmail(tempRaw, tsBr) {
       "name": "Temperatura da água",
       "value": Number(currentStr),
       "unitCode": "CEL",
-      "dateObserved": raw.current.ts,
+      "dateObserved": raw.Temperatura.current.ts,
       "measurementTechnique": "DS18B20 via NodeMCU ESP8266"
     },
     "distribution": [
