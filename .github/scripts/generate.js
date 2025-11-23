@@ -20,43 +20,109 @@ function fetchJSONWithRetry(url, retries = 3, baseDelay = 600, timeoutMs = 8000)
         if (res.statusCode && res.statusCode >= 400) { res.resume(); return fail(new Error(`HTTP ${res.statusCode}`)); }
         let data = '';
         res.on('data', d => data += d);
-        res.on('end', () => { try { resolve(JSON.parse(data)); } catch (e) { fail(new Error(`Parse JSON: ${e.message}`)); } });
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(data));
+          } catch (e) {
+            fail(new Error(`Parse JSON: ${e.message}`));
+          }
+        });
       });
       req.setTimeout(timeoutMs, () => req.destroy(new Error('Timeout')));
       req.on('error', fail);
-      function fail(err){ if (attempt >= retries) return reject(err); setTimeout(tryOnce, baseDelay * Math.pow(2, attempt-1)); }
+      function fail(err) {
+        if (attempt >= retries) return reject(err);
+        setTimeout(tryOnce, baseDelay * Math.pow(2, attempt - 1));
+      }
     };
     tryOnce();
   });
 }
 
-function minusOneDeg(obj) {
-  if (obj === null || typeof obj !== 'object') return obj;
-  if (Array.isArray(obj)) return obj.map(minusOneDeg);
-  const out = {};
-  for (const k of Object.keys(obj)) {
-    const v = obj[k];
-    if (k === 'value' && typeof v === 'number' && Number.isFinite(v)) out[k] = Number((v - 1).toFixed(2));
-    else if (v && typeof v === 'object') out[k] = minusOneDeg(v);
-    else out[k] = v;
-  }
-  return out;
-}
-
 function flattenKV(obj, prefix = '', lines = []) {
   if (obj === null || typeof obj !== 'object') {
-    lines.push(`${prefix.replace(/\.$/,'')}=${String(obj)}`);
+    lines.push(`${prefix.replace(/\.$/, '')}=${String(obj)}`);
     return lines;
   }
   for (const k of Object.keys(obj).sort()) {
-    const v = obj[k], p = prefix ? `${prefix}.${k}` : k;
-    if (v !== null && typeof v === 'object') flattenKV(v, p, lines);
-    else lines.push(`${p}=${String(v)}`);
+    const v = obj[k];
+    const p = prefix ? `${prefix}.${k}` : k;
+    if (v !== null && typeof v === 'object') {
+      flattenKV(v, p, lines);
+    } else {
+      lines.push(`${p}=${String(v)}`);
+    }
   }
   return lines;
 }
 
-function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function esc(s) {
+  return s
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;');
+}
+
+// --------- ENVIO DE E-MAIL VIA MAILCHANNELS (SEM CLOUDFLARE, SEM -1) ---------
+
+function sendAlertEmail(tempRaw, tsBr) {
+  return new Promise((resolve, reject) => {
+    const payload = {
+      personalizations: [
+        {
+          to: [{ email: "rodrigosbar@gmail.com" }]
+        }
+      ],
+      from: {
+        email: "alerta@github-actions.local",
+        name: "ArcosLand Monitor"
+      },
+      subject: `[ArcosLand] ALERTA: ${tempRaw.toFixed(2)} °C`,
+      content: [
+        {
+          type: "text/plain",
+          value:
+            `Alerta de temperatura em ArcosLand.\n\n` +
+            `Data/hora: ${tsBr}\n` +
+            `Temperatura (sem ajuste): ${tempRaw.toFixed(2)} °C\n` +
+            `Limites configurados: mínimo 24 °C, máximo 26 °C.\n\n` +
+            `Origem: GitHub Actions (.github/scripts/generate.js).`
+        }
+      ]
+    };
+
+    const data = JSON.stringify(payload);
+
+    const options = {
+      hostname: 'api.mailchannels.net',
+      path: '/tx/v1/send',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(data)
+      },
+      timeout: 8000
+    };
+
+    const req = https.request(options, (res) => {
+      let body = '';
+      res.on('data', chunk => body += chunk);
+      res.on('end', () => {
+        if (res.statusCode && res.statusCode >= 400) {
+          return reject(new Error(`HTTP ${res.statusCode}: ${body}`));
+        }
+        resolve();
+      });
+    });
+
+    req.on('error', reject);
+    req.on('timeout', () => req.destroy(new Error('Timeout no envio de e-mail')));
+    req.write(data);
+    req.end();
+  });
+}
+
+// ------------------- MAIN -------------------
 
 (async () => {
   const raw = await fetchJSONWithRetry(RTDB_URL);
@@ -64,15 +130,37 @@ function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g
     throw new Error('JSON inesperado: faltando current.ts/value');
   }
 
-  const adj = minusOneDeg(raw);
+  // 🔥 Temperatura BRUTA do Firebase, SEM -1, usada para alerta e para a página
+  const tempRaw = raw.current.value;
+  const tsBr = new Date(raw.current.ts).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+
+  if (Number.isFinite(tempRaw)) {
+    if (tempRaw < 24 || tempRaw > 26) {
+      console.log(`⚠️ Temperatura FORA do intervalo: ${tempRaw.toFixed(2)} °C — enviando e-mail...`);
+      try {
+        await sendAlertEmail(tempRaw, tsBr);
+        console.log('📧 Alerta de temperatura enviado para rodrigosbar@gmail.com');
+      } catch (e) {
+        console.error('❌ Erro ao enviar e-mail de alerta:', e.message);
+        // não derruba o job por causa do e-mail
+      }
+    } else {
+      console.log(`Temperatura dentro do intervalo: ${tempRaw.toFixed(2)} °C`);
+    }
+  } else {
+    console.warn('Temperatura bruta não é número finito, ignorando alerta.');
+  }
+
+  // 🔹 A PARTIR DAQUI: uso SEM -1 também para os arquivos/página
   if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
 
-  const currentStr = Number.isFinite(adj.current.value) ? adj.current.value.toFixed(2) : 'N/A';
-  fs.writeFileSync(path.join(OUT_DIR, 'current.txt'), currentStr, 'utf-8');
-  fs.writeFileSync(path.join(OUT_DIR, 'txt'), flattenKV(adj).join('\n') + '\n', 'utf-8');
-  fs.writeFileSync(path.join(OUT_DIR, 'data.json'), JSON.stringify(adj, null, 2) + '\n', 'utf-8');
+  const currentStr = Number.isFinite(tempRaw) ? tempRaw.toFixed(2) : 'N/A';
 
-  const tsBr = new Date(adj.current.ts).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  // arquivos de saída
+  fs.writeFileSync(path.join(OUT_DIR, 'current.txt'), currentStr, 'utf-8');
+  fs.writeFileSync(path.join(OUT_DIR, 'txt'), flattenKV(raw).join('\n') + '\n', 'utf-8');
+  fs.writeFileSync(path.join(OUT_DIR, 'data.json'), JSON.stringify(raw, null, 2) + '\n', 'utf-8');
+
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "Dataset",
@@ -84,7 +172,7 @@ function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g
       "name": "Temperatura da água",
       "value": Number(currentStr),
       "unitCode": "CEL",
-      "dateObserved": adj.current.ts,
+      "dateObserved": raw.current.ts,
       "measurementTechnique": "DS18B20 via NodeMCU ESP8266"
     },
     "distribution": [
@@ -118,8 +206,8 @@ function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g
   <p class="lead">No dia <strong>${tsBr}</strong>, a temperatura do aquário é <strong>${currentStr} °C</strong>.</p>
 
   <div class="card">
-    <h2 style="margin-top:0">JSON completo (ajustado −1&nbsp;°C)</h2>
-    <pre>${esc(JSON.stringify(adj, null, 2))}</pre>
+    <h2 style="margin-top:0">JSON completo</h2>
+    <pre>${esc(JSON.stringify(raw, null, 2))}</pre>
   </div>
 
   <p class="muted">Atualizado automaticamente via GitHub Actions (a cada 5 minutos).</p>
@@ -129,6 +217,7 @@ ${esc(JSON.stringify(jsonLd))}
   </script>
 </body>
 </html>`;
+
   fs.writeFileSync(path.join(OUT_DIR, 'index.html'), html, 'utf-8');
 
   fs.writeFileSync(path.join(OUT_DIR, '_headers'), `/*
