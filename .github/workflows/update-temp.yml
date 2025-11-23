@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      RTDB_URL: "https://arcosland-90ad2-default-rtdb.firebaseio.com/aquario.json"
+      RTDB_URL: "https://arcosland-90ad2-default-rtdb.firebaseio.com/aquario/arcosLand.json"
       OUT_DIR: "public"
       BASE_URL: "https://arcosland.pages.dev"
 
